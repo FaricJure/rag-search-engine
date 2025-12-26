@@ -4,12 +4,18 @@ import argparse
 import json
 import string
 from nltk.stem import PorterStemmer
+from inverted_index import InvertedIndex
 
-def preprocess_text(text: str) -> list[str]:
-    text = text.lower()
-    text = text.translate(str.maketrans("", "", string.punctuation))
-    text = text.split()
-    return text
+class TextTokenizer:
+    def __init__(self, stopwords: set[str]) -> None:
+        self._stopwords = stopwords
+        self._stemmer = PorterStemmer()
+
+    def tokenize_text(self, text: str) -> list[str]:
+        text = text.lower()
+        text = text.translate(str.maketrans("", "", string.punctuation))
+        tokens = text.split()
+        return [self._stemmer.stem(token) for token in tokens if token not in self._stopwords]
 
 def any_token_matches(query_tokens: list[str], title_tokens: list[str]) -> bool:
     return any(
@@ -25,6 +31,8 @@ def main() -> None:
     search_parser = subparsers.add_parser("search", help="Search movies using BM25")
     search_parser.add_argument("query", type=str, help="Search query")
 
+    subparsers.add_parser("build", help="Build inverted index")
+
     args = parser.parse_args()
 
     with open("data/movies.json", "r", encoding="utf-8") as f:
@@ -33,9 +41,9 @@ def main() -> None:
     with open("data/stopwords.txt", "r", encoding="utf-8") as f:
         stopwords = f.read()
 
-    stopwords = stopwords.splitlines()
+    stopwords = set(stopwords.splitlines())
 
-    stemmer = PorterStemmer()
+    tokenizer = TextTokenizer(stopwords)
 
     limit = 5
 
@@ -46,19 +54,8 @@ def main() -> None:
             results = []
             print(f"Searching for: {args.query}")
             for movie in data["movies"]:
-                query_tokens = preprocess_text(args.query)
-                title_tokens = preprocess_text(movie["title"])
-
-                for query_token in query_tokens:
-                    if query_token in stopwords:
-                        query_tokens.remove(query_token)
-                
-                for title_token in title_tokens:
-                    if title_token in stopwords:
-                        title_tokens.remove(title_token)
-
-                query_tokens = [stemmer.stem(token) for token in query_tokens]
-                title_tokens = [stemmer.stem(token) for token in title_tokens]
+                query_tokens = tokenizer.tokenize_text(args.query)
+                title_tokens = tokenizer.tokenize_text(movie["title"])
 
                 if any_token_matches(query_tokens, title_tokens):
                     results.append(movie)
@@ -67,6 +64,15 @@ def main() -> None:
 
             for i in range(0, len(results)):
                 print(f"{i}. {results[i]['title']}")
+
+        # uv run cli/keyword_search_cli.py build
+        case "build":
+            index = InvertedIndex(tokenize=tokenizer.tokenize_text)
+            index.build(data["movies"])
+            index.save()
+            merida_docs = index.get_documents("merida")
+            first_merida_id = merida_docs[0] if merida_docs else None
+            print(f"First document ID for token 'merida': {first_merida_id}")
 
         # uv run cli/keyword_search_cli.py
         case _:

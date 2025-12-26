@@ -10,4 +10,7 @@ wheels/
 .venv
 
 # RAG data
-/data/
+data/
+uv.lock
+cache/
+
